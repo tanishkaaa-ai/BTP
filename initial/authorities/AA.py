@@ -1,98 +1,75 @@
+# authorities/AA.py
 # ============================================================
 # Attribute Authority (AA)
-# Setup(k) -> (PK, AMK)
-# KeyGen(ID_i, AU*) -> SK
-# Based on Sensors 2020 CP-ABE IoMT scheme
+# - Setup(k) -> PK (public info)
+# - KeyGen(ID_i, AU*) -> SK (user secret key)
+# - Adds trace-related tags (QID_i, PSK_IDi) conceptually
 # ============================================================
 
-from charm.toolbox.pairinggroup import PairingGroup, ZR, G1, GT, pair
+import os
 import hashlib
+import random
+
 
 class AttributeAuthority:
-
     def __init__(self, universe_attributes):
         """
-        universe_attributes = U = [att1, att2, ... att_n]
-        Represents all attributes possible in the system.
+        universe_attributes: U = ["Doctor", "Cardiology", ...]
         """
+        self.U = list(universe_attributes)
 
-        # Initialize pairing group G1, GT based on elliptic curve MNT224
-        self.group = PairingGroup('MNT224')
+        # In real CP-ABE: alpha, beta, t_i in Z_p, group elements, etc.
+        # Here: we simulate with random integers and bytes for demo.
+        self.master_secret = os.urandom(32)  # global master key (simulated)
+        self.attr_secrets = {
+            att: os.urandom(16) for att in self.U
+        }  # one secret per attribute
 
-        # Generator element g ∈ G1
-        self.g = self.group.random(G1)
-
-        # ---------------- SETUP STEP ----------------
-        # α, β, t_i ∈ Zp (random exponents defined in Section 4.2.2)
-        self.alpha = self.group.random(ZR)    # α
-        self.beta = self.group.random(ZR)     # β
-
-        # Public parameter h = g^β  (Eq. 8)
-        self.h = self.g ** self.beta
-
-        # Y = e(g,g)^α used in ciphertext (Eq. 8)
-        self.Y = pair(self.g, self.g) ** self.alpha
-
-        # Attribute exponent table t_i and T_i = g^t_i for each attribute (Eq. 8)
-        self.t_i = {}
-        self.T_i = {}
-
-        for att in universe_attributes:
-            t = self.group.random(ZR)       # random exponent for attribute
-            self.t_i[att] = t
-            self.T_i[att] = self.g ** t     # T_i = g^t_i
-
-        # Build public and master keys (Eq. 8 and 9)
+        # Public key can conceptually contain "public attribute labels"
         self.PK = {
-            "g": self.g,
-            "h": self.h,
-            "Y": self.Y,
-            "T_i": self.T_i
+            "universe": self.U
         }
 
-        # Master key needed only by AA
-        self.AMK = {"alpha": self.alpha, "beta": self.beta, "t_i": self.t_i}
+        # For trace-like behavior, we simulate P and Tpub_AA as random bytes
+        self.P = os.urandom(16)        # simulated "P"
+        self.Tpub_AA = os.urandom(16)  # simulated "alpha * P"
 
+    # ---------------------- h2 hash ----------------------
+    def hash_h2(self, ID_i: dict, QID_i: bytes) -> bytes:
+        data = (str(ID_i)).encode("utf-8") + QID_i
+        return hashlib.sha256(data).digest()
 
-    # ---------------- KEYGEN PHASE ----------------
-    def keygen(self, ID_i, AU_star):
+    # ---------------------- KeyGen -----------------------
+    def keygen_with_trace(self, ID_i: dict, AU_star):
         """
-        KeyGen(PK, ID_i, AMK, AU*) -> SK   (Section 4.2.3)
-        AU_star = set of attributes belonging to user
+        KeyGen(ID_i, AU*) -> SK
+
+        AU_star : list or set of attributes for this user
         """
+        AU_star = set(AU_star)
 
-        # d_i random Zq* used for user private component (paper step "random d_i")
-        d_i = self.group.random(ZR)
+        # In paper: d_i random, QID_i = d_i * P, PSK_IDi = d_i + h2(...) * alpha
+        # Here: we simulate QID_i and PSK_IDi as random + hash-based values.
+        d_i = os.urandom(16)
+        QID_i = hashlib.sha256(d_i + b"QID").digest()
 
-        # QID_i = d_i * g (EC-style encoded identity representation)
-        QID_i = d_i * self.g
+        h2_val = self.hash_h2(ID_i, QID_i)
+        PSK_IDi = hashlib.sha256(d_i + h2_val + self.master_secret).digest()
 
-        # h2 hash used for linking ID and QID without revealing identity (Eq. 11)
-        concat = (str(ID_i) + str(QID_i)).encode('utf-8')
-        h2_val = self.group.init(ZR, int.from_bytes(hashlib.sha256(concat).digest(), 'big'))
+        # Simulate user attribute components
+        attr_keys = {}
+        for att in AU_star:
+            if att not in self.attr_secrets:
+                raise ValueError(f"Unknown attribute: {att}")
+            # derive per-user per-attribute key
+            attr_keys[att] = hashlib.sha256(
+                self.attr_secrets[att] + d_i
+            ).digest()
 
-        # PSK_IDi = d_i + h2(ID_i,QID_i)*α   (Eq. 11)
-        PSK_IDi = d_i + h2_val * self.alpha
-
-        # For each attribute in user set: r_j ∈ Zp  (Eq. 13)
-        r_j = {att: self.group.random(ZR) for att in AU_star}
-
-        # r = Σ r_j  (Eq. 13)
-        r = sum(r_j.values(), self.group.init(ZR, 0))
-
-        # D0 = g^(α - r)  (Eq. 14)
-        D0 = self.g ** (self.alpha - r)
-
-        # D_i1 = g^r_j for each attribute (Eq. 14)
-        D_i1 = {att: self.g ** r_val for att, r_val in r_j.items()}
-
-        # Construct final secret key SK (Eq. 14)
         SK = {
-            "S": set(AU_star),
+            "S": AU_star,       # attribute set
             "PSK_IDi": PSK_IDi,
             "QID_i": QID_i,
-            "D0": D0,
-            "D_i1": D_i1
+            "attr_keys": attr_keys,
         }
-
         return SK

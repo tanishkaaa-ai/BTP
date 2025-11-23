@@ -1,62 +1,67 @@
-from authorities.AA import AttributeAuthority
+# demo/run_demo.py
+# ============================================================
+# End-to-end flow (pure Python CP-ABE-like demo)
+# ============================================================
+
 from authorities.TA import TraceAuthority
-from servers.ACServer import ACServer
-from Client.User import UserClient
+from authorities.AA import AttributeAuthority
+from servers.ACServer import AccessControlServer
+from client.User import UserClient
 from crypto.Encrypt import Encryptor
 
 
 def main():
-    print("\n=== CP-ABE IoMT Full Demo Running ===")
+    print("\n=== CP-ABE IoMT Demo (Pure Python) ===\n")
 
-    # -------------------- Authorities --------------------
+    # ---------- 1. Setup authorities ----------
     U = ["Doctor", "Nurse", "Cardiology"]
     aa = AttributeAuthority(U)
-    aa.setup_trace_public()
-
     ta = TraceAuthority()
-    ac = ACServer(aa)
+    ac = AccessControlServer(aa)
 
-    # -------------------- User Registration --------------------
-    RID = "RealUserID123"
+    # ---------- 2. User registration at TA ----------
+    RID = "RealID123"
     ID_i = ta.register(RID, "Tanisha", "2025")
     print("[TA] Anonymous ID_i =", ID_i)
 
+    # ---------- 3. AA issues SK to user ----------
     user_attrs = ["Doctor", "Cardiology"]
     SK = aa.keygen_with_trace(ID_i, user_attrs)
+    print("[AA] Secret key SK with attributes:", user_attrs)
 
-    # AC server also stores KEY traceability (ID_i, QID_i)
-    ac.register_user_from_aa("user1", ID_i, SK["QID_i"])
-    print("[AA] Secret key issued with attributes", user_attrs)
+    user_id = "user1"
+    ac.register_user_from_aa(user_id, ID_i, SK["QID_i"])
 
-    # -------------------- User Client --------------------
-    user = UserClient("user1", ID_i, SK, aa)
+    # ---------- 4. Create user client ----------
+    user = UserClient(user_id, ID_i, SK, aa)
 
-    # -------------------- Encrypt medical data --------------------
+    # ---------- 5. Data owner encrypts medical record ----------
     encryptor = Encryptor(aa.PK)
-    message = b"Patient ECG: Normal Sinus Rhythm."
+    message = b"Patient ECG: Normal sinus rhythm."
     AS = ["Doctor", "Cardiology"]
 
     CT0 = encryptor.encrypt(message, AS)
     ac.store_ciphertext("record001", CT0)
-    print("[Encryptor] Ciphertext stored in cloud as record001")
+    print("[Encryptor] Stored ciphertext for 'record001' with policy:", AS)
 
-    # -------------------- User token --------------------
+    # ---------- 6. User creates token; AC verifies ----------
     token = user.create_token()
-    ok = ac.verify_token("user1", token["PSK_IDi"], token["ID_i"])
+    ok = ac.verify_token(user_id, token["PSK_IDi"], token["ID_i"])
     print("[AC] Token verified:", ok)
 
     if not ok:
         print("Access denied.")
         return
 
-    # -------------------- AC Partial Decrypt --------------------
+    # ---------- 7. AC performs partial decrypt ----------
     C, CTX = ac.partial_decrypt("record001", SK)
-    print("[AC] Partial decrypt C computed")
+    print("[AC] Partial decrypt completed, C =", C)
 
-    # -------------------- Final Decrypt --------------------
-    M = user.final_decrypt(C, CTX)
-    print("[User] Final decrypted message:", M.decode())
-    print("\n=== DEMO COMPLETE ===")
+    # ---------- 8. User final decrypts and verifies ----------
+    recovered = user.final_decrypt(C, CTX)
+    print("[User] Final decrypted message:", recovered.decode("utf-8"))
+
+    print("\n=== DEMO COMPLETE ===\n")
 
 
 if __name__ == "__main__":

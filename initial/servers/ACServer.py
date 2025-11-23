@@ -1,94 +1,66 @@
+# servers/ACServer.py
 # ============================================================
-# servers/ACServer.py  (FINAL VERSION)
-# Implements:
-# - Cloud ciphertext storage
-# - Token verification (Eq. 25)
-# - Outsourced partial decryption (Eq. 26)
+# Access Control server (pure Python demo version)
+# - Stores ciphertext in "cloud"
+# - Verifies token (soft check)
+# - Performs partial_decrypt(CT, AU*, SK) -> C
 # ============================================================
 
-from charm.toolbox.pairinggroup import PairingGroup, G1, pair
 from servers.CloudStorage import CloudStorage
 
 
 class AccessControlServer:
-    def __init__(self, aa, group_name='MNT224'):
+    def __init__(self, aa):
         """
-        aa         : AttributeAuthority instance (provides PK, Tpub_AA, hash_h2)
+        aa : AttributeAuthority instance (to share user info)
         """
-        self.group = PairingGroup(group_name)
         self.aa = aa
-        self.cloud = CloudStorage()        # <- Use cloud layer for storage
-        self.user_table = {}               # user_id -> (ID_i, QID_i)
+        self.cloud = CloudStorage()
+        self.user_table = {}   # user_id -> (ID_i, QID_i)
 
-    # ------------------- Storage -------------------
+    # ---------- Storage ----------
     def store_ciphertext(self, file_id: str, CT0: dict):
         self.cloud.upload(file_id, CT0)
 
     def fetch_ciphertext(self, file_id: str):
         return self.cloud.download(file_id)
 
-    # ------------------- Registration -------------------
+    # ---------- Registration from AA ----------
     def register_user_from_aa(self, user_id: str, ID_i, QID_i):
-        """
-        AC stores user identity tuple for token verification.
-        """
         self.user_table[user_id] = (ID_i, QID_i)
 
-    # ------------------- Token Verification (Eq. 25) -------------------
-    def verify_token(self, user_id: str, PSK_IDi, ID_i):
+    # ---------- Token verification (simplified) ----------
+    def verify_token(self, user_id: str, PSK_IDi: bytes, ID_i):
         """
-        Verifies:
-            PSK_IDi * P == QID_i + h2(ID_i, QID_i) * Tpub_AA
+        In the real paper: PSK_IDi * P == QID_i + h2(...) * Tpub_AA
+
+        Here (pure Python demo):
+        - Just check that we know this user_id
+        - And that ID_i matches what AA registered
         """
-
-        # Retrieve from table
-        ID_i_ref, QID_i = self.user_table[user_id]
-
-        if ID_i != ID_i_ref:
+        if user_id not in self.user_table:
             return False
 
-        P = self.aa.P
-        Tpub_AA = self.aa.Tpub_AA
+        ID_i_ref, _ = self.user_table[user_id]
+        return ID_i_ref == ID_i
 
-        left = PSK_IDi * P
-        h2_val = self.aa.hash_h2(ID_i, QID_i)
-        right = QID_i + (h2_val * Tpub_AA)
-
-        return left == right
-
-    # ------------------- Partial Decryption (Eq. 26) -------------------
+    # ---------- Partial decrypt ----------
     def partial_decrypt(self, file_id: str, SK: dict):
         """
-        Computes:
-            C = e(g^r, C') / e(C_hat, ∏ g^t_i)
+        Check if user attributes satisfy AS. If yes, return dummy C and CT0.
         """
 
         CT0 = self.fetch_ciphertext(file_id)
         CT = CT0["CT"]
 
-        AS = CT["AS"]
-        C_hat = CT["C_hat"]        # g^s
-        C_prime = CT["C_prime"]    # (h * Π C_i)^s
+        policy_AS = set(CT["AS"])
+        user_attrs = SK["S"]
 
-        D_i1 = SK["D_i1"]          # each = g^{r_i}
-        AU_star = SK["S"]
+        if not policy_AS.issubset(user_attrs):
+            raise PermissionError("User attributes do not satisfy policy.")
 
-        # ----- Compute g^r = Π g^{r_i} -----
-        g_r = self.group.init(G1, 1)
-        for att in AU_star:
-            if att in D_i1:
-                g_r *= D_i1[att]
-
-        numerator = pair(g_r, C_prime)
-
-        # ----- Compute Π g^{t_i} for all attributes in policy -----
-        prod_T = self.group.init(G1, 1)
-        for att in AS:
-            Ti = self.aa.PK["T_i"][att]
-            prod_T *= Ti
-
-        denominator = pair(C_hat, prod_T)
-
-        C = numerator / denominator  # e(g,g)^{r·s}
+        # In real scheme, AC would compute C using pairings.
+        # Here: we just return a dummy C flag.
+        C = b"OK"
 
         return C, CT0

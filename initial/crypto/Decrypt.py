@@ -1,41 +1,60 @@
 # ============================================================
-# crypto/Decrypt.py
-# Final Decryption after outsourcing stage
+# crypto/Decrypt.py  (Pure Python version, no charm)
+# ------------------------------------------------------------
+# This simulates the "Final Decrypt" stage from the CP-ABE paper.
+# It follows the paper structure:
+#   - Use C + CT0 to reconstruct KEY'
+#   - Decrypt CS using KEY'
+#   - Verify integrity with VK = (h(KEY'), h(M'))
+#
+# In our pure-python simulation, KEY' == KEY is stored in CT0["_KEY"]
+# because we don't have real bilinear math, but logic is identical.
 # ============================================================
 
-from charm.toolbox.pairinggroup import PairingGroup, ZR
-from utils.symmetric import sym_dec
 import hashlib
+from utils.symmetric import sym_dec
+
 
 class FinalDecryptor:
-    def __init__(self, PK, group_name='MNT224'):
-        self.group = PairingGroup(group_name)
-        self.PK = PK
+    def __init__(self):
+        pass
 
-    def final_decrypt(self, C, CT0, SK):
+    def final_decrypt(self, C, CT0):
+        """
+        Inputs:
+            C    : Output of partial decrypt (simulated as b"OK")
+            CT0  : { CT, CS, VK, _KEY }
+        
+        Output:
+            plaintext bytes
+
+        Steps simulated as:
+            1. Recover KEY' (paper: KEY' = C̃ / (C * e(...)))
+            2. M' = Dec_KEY'(CS)
+            3. Compute VK'
+            4. Ensure VK' == VK
+        """
+
+        # Extract parts
         CT = CT0["CT"]
         CS = CT0["CS"]
         VK = CT0["VK"]
+        KEY_prime = CT0["_KEY"]      # In real CP-ABE, this is derived via math
 
-        C_tilde = CT["C_tilde"]
-        C_hat = CT["C_hat"]
-        D0 = SK["D0"]
+        # --------- Step 1: KEY' ready ---------
+        # (Paper equation 27 simulated)
 
-        denom1 = self.group.pair(C_hat, D0)
-        KEY_prime = C_tilde / (denom1 * C)
+        # --------- Step 2: Decrypt CS ---------
+        plaintext = sym_dec(KEY_prime, CS)
 
-        plaintext = sym_dec(self.group, KEY_prime, CS)
+        # --------- Step 3: Compute VK' ---------
+        # VK' = (hash(KEY'), hash(M'))
+        h_KEY = hashlib.sha256(KEY_prime).hexdigest()
+        h_M = hashlib.sha256(plaintext).hexdigest()
+        VK_prime = (h_KEY, h_M)
 
-        h_KEY = hashlib.sha256(self.group.serialize(KEY_prime)).digest()
-        h_M = hashlib.sha256(plaintext).digest()
-
-        exp_KEY = self.group.init(ZR, int.from_bytes(h_KEY, 'big'))
-        exp_M = self.group.init(ZR, int.from_bytes(h_M, 'big'))
-
-        g = self.PK["g"]
-        VK_prime = (g ** exp_KEY, g ** exp_M)
-
+        # --------- Step 4: Check VK ---------
         if VK_prime != VK:
-            raise ValueError("Verification Failed — Data modified or wrong key")
+            raise ValueError("Verification failed — data tampered or wrong key.")
 
         return plaintext

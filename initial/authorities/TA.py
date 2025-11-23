@@ -1,29 +1,49 @@
+# authorities/TA.py
 # ============================================================
-# Trace Authority functions managing:
-# Anonymous ID, h1 hashing, XOR data hiding
+# Trace Authority (TA)
+# - Registers user with real ID and creates anonymous ID_i
+# - Simulates ID2 = RID XOR h1(...)
 # ============================================================
 
 import hashlib
-from charm.toolbox.pairinggroup import PairingGroup, ZR, G1
 
-group = PairingGroup('MNT224')
 
 class TraceAuthority:
     def __init__(self):
-        self.beta = group.random(ZR)
-        self.P = group.random(G1)
-        self.Tpub_TA = self.beta * self.P
+        # registry: real RID -> anonymous ID_i
         self.registry = {}
 
-    def h1(self, raw):
-        return group.init(ZR, int.from_bytes(hashlib.sha256(raw).digest(), "big"))
+    def h1(self, rid: str, id1: str, t: str) -> bytes:
+        """Hash-based h1 used for generating ID2."""
+        concat = (rid + id1 + t).encode("utf-8")
+        return hashlib.sha256(concat).digest()
 
-    def register(self, RID, ID1, T):
-        concat = (RID + ID1 + T).encode()
-        h = self.h1(concat)
-        xor_bytes = bytes(a ^ b for a, b in zip(RID.encode(), int(h).to_bytes(len(RID), 'big')))
+    def register(self, RID: str, ID1: str, T: str):
+        """
+        Input:
+            RID : real identity
+            ID1 : user-chosen pseudonym
+            T   : validity period/string
+
+        Output:
+            ID_i = {ID1, ID2, T}
+        """
+        h = self.h1(RID, ID1, T)
+
+        rid_bytes = RID.encode("utf-8")
+        h_bytes = h[: len(rid_bytes)]
+        xor_bytes = bytes(a ^ b for a, b in zip(rid_bytes, h_bytes))
         ID2 = xor_bytes.hex()
 
-        ID = {"ID1": ID1, "ID2": ID2, "T": T}
-        self.registry[RID] = ID
-        return ID
+        ID_i = {"ID1": ID1, "ID2": ID2, "T": T}
+        self.registry[RID] = ID_i
+        return ID_i
+
+    def trace(self, leaked_ID_i: dict):
+        """
+        Given an anonymous ID_i, try to find the real RID.
+        """
+        for rid, stored in self.registry.items():
+            if stored == leaked_ID_i:
+                return rid
+        return None
