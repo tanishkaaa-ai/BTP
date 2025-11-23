@@ -1,114 +1,94 @@
 # ============================================================
-# servers/ACServer.py
-# Access Control server:
-# - Stores ciphertext in "cloud"
-# - Verifies token
-# - Performs partial decrypt(CT, AU*, SK) -> C
+# servers/ACServer.py  (FINAL VERSION)
+# Implements:
+# - Cloud ciphertext storage
+# - Token verification (Eq. 25)
+# - Outsourced partial decryption (Eq. 26)
 # ============================================================
 
 from charm.toolbox.pairinggroup import PairingGroup, G1, pair
+from servers.CloudStorage import CloudStorage
+
 
 class AccessControlServer:
     def __init__(self, aa, group_name='MNT224'):
         """
-        aa         : instance of AttributeAuthority (for shared info / Tpub_AA)
-        group_name : pairing curve name
+        aa         : AttributeAuthority instance (provides PK, Tpub_AA, hash_h2)
         """
         self.group = PairingGroup(group_name)
         self.aa = aa
-        self.storage = {}         # file_id -> CT0
-        self.user_table = {}      # user_id -> (ID_i, QID_i) (shared by AA)
+        self.cloud = CloudStorage()        # <- Use cloud layer for storage
+        self.user_table = {}               # user_id -> (ID_i, QID_i)
 
-    # ---------- Storage ----------
+    # ------------------- Storage -------------------
     def store_ciphertext(self, file_id: str, CT0: dict):
-        """
-        Save CT0 into cloud database.
-        """
-        self.storage[file_id] = CT0
+        self.cloud.upload(file_id, CT0)
 
     def fetch_ciphertext(self, file_id: str):
-        """
-        Retrieve CT0 from cloud.
-        """
-        return self.storage[file_id]
+        return self.cloud.download(file_id)
 
-    # ---------- Registration from AA ----------
+    # ------------------- Registration -------------------
     def register_user_from_aa(self, user_id: str, ID_i, QID_i):
         """
-        AA calls this (or main code calls with values from AA)
-        to let AC know (ID_i, QID_i) for trace / token verification.
+        AC stores user identity tuple for token verification.
         """
         self.user_table[user_id] = (ID_i, QID_i)
 
-    # ---------- Token verification (tracking-related) ----------
+    # ------------------- Token Verification (Eq. 25) -------------------
     def verify_token(self, user_id: str, PSK_IDi, ID_i):
         """
-        Implements Eq. (25) style check:
-            PSK_IDi * P  ==  QID_i + h2(ID_i, QID_i) * Tpub_AA
-
-        This confirms that the token was made by the legitimate user
-        without revealing their real identity to the AC server.
+        Verifies:
+            PSK_IDi * P == QID_i + h2(ID_i, QID_i) * Tpub_AA
         """
-        # Get mapping (ID_i_ref, QID_i) that AA has registered
+
+        # Retrieve from table
         ID_i_ref, QID_i = self.user_table[user_id]
 
-        # If ID values don't match, reject early
-        if ID_i_ref != ID_i:
+        if ID_i != ID_i_ref:
             return False
 
-        # Left hand side: PSK_IDi * P
-        P = self.aa.P                   # P from AA (elliptic curve generator)
-        left = PSK_IDi * P
+        P = self.aa.P
+        Tpub_AA = self.aa.Tpub_AA
 
-        # Right side: QID_i + h2(ID_i, QID_i) * Tpub_AA
+        left = PSK_IDi * P
         h2_val = self.aa.hash_h2(ID_i, QID_i)
-        right = QID_i + (h2_val * self.aa.Tpub_AA)
+        right = QID_i + (h2_val * Tpub_AA)
 
         return left == right
 
-    # ---------- Partial decrypt ----------
+    # ------------------- Partial Decryption (Eq. 26) -------------------
     def partial_decrypt(self, file_id: str, SK: dict):
         """
-        partial_decrypt(CT, AU*, x) = C
-
-        From paper Eq. (26), conceptually:
-            C = e(g^r, C') / e(C_hat, (∏ g^t_i)^s) = e(g,g)^{r·s}
-
-        Here:
-        - We reconstruct g^r from SK["D_i1"] (each D_i1 = g^{r_i})
-        - Use CT["C_prime"], CT["C_hat"], and AA's T_i
+        Computes:
+            C = e(g^r, C') / e(C_hat, ∏ g^t_i)
         """
 
         CT0 = self.fetch_ciphertext(file_id)
         CT = CT0["CT"]
 
-        # Extract ciphertext pieces
         AS = CT["AS"]
-        C_hat = CT["C_hat"]       # g^s
-        C_prime = CT["C_prime"]   # (h * ∏C_i)^s (approx.)
+        C_hat = CT["C_hat"]        # g^s
+        C_prime = CT["C_prime"]    # (h * Π C_i)^s
 
-        # Extract user key pieces
-        D_i1 = SK["D_i1"]         # dict: attribute -> g^{r_i}
-        AU_star = SK["S"]         # user attributes set
+        D_i1 = SK["D_i1"]          # each = g^{r_i}
+        AU_star = SK["S"]
 
-        # --------- Build g^r = ∏ g^{r_i} = ∏ D_i1[att] ----------
-        g_r = self.group.init(G1, 1)  # identity in G1
+        # ----- Compute g^r = Π g^{r_i} -----
+        g_r = self.group.init(G1, 1)
         for att in AU_star:
             if att in D_i1:
-                g_r *= D_i1[att]      # multiply them: g^r1 * g^r2 ...
+                g_r *= D_i1[att]
 
-        # Numerator = e(g^r, C_prime)
         numerator = pair(g_r, C_prime)
 
-        # Denominator approximates e(C_hat, ∏ g^{t_i})
+        # ----- Compute Π g^{t_i} for all attributes in policy -----
         prod_T = self.group.init(G1, 1)
         for att in AS:
-            Ti = self.aa.PK["T_i"][att]   # g^{t_i}
+            Ti = self.aa.PK["T_i"][att]
             prod_T *= Ti
 
         denominator = pair(C_hat, prod_T)
 
-        # C = numerator / denominator ≈ e(g,g)^{r·s}
-        C = numerator / denominator
+        C = numerator / denominator  # e(g,g)^{r·s}
 
         return C, CT0
