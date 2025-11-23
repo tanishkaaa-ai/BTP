@@ -6,7 +6,7 @@
 from authorities.TA import TraceAuthority
 from authorities.AA import AttributeAuthority
 from servers.ACServer import AccessControlServer
-from client.User import UserClient
+from Client.User import UserClient
 from crypto.Encrypt import Encryptor
 
 
