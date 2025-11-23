@@ -1,7 +1,7 @@
 from authorities.AA import AttributeAuthority
 from authorities.TA import TraceAuthority
 from servers.ACServer import ACServer
-from client.User import User
+from Client.User import User
 from crypto.Encrypt import encrypt
 
 # Setup authorities
