@@ -16,7 +16,7 @@ def keygen(self, pk, mk ,user_attrs):
         raise Exception("Run setup() first so mk is available in self.mk")
 
     g = pk["g"]
-    w_map = self.mk["w"]
+    w_map = mk["w"]
 
     QID = {}
     for attr in user_attrs:
