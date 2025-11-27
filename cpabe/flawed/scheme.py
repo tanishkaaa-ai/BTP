@@ -122,8 +122,8 @@ class CollusionFlawedCPABE:
     # ------------------------------------------------------------
     # KeyGen (delegated)
     # ------------------------------------------------------------
-    def keygen(self, pk, user_attrs):
-        return keygen_mod(self.group, pk, self.mk, user_attrs)
+    def keygen(self, pk, mk, user_id_bytes, user_attrs):
+        return keygen_mod(self.group, pk, mk, user_attrs, user_id_bytes)
 
     # ------------------------------------------------------------
     # Verify Token (delegated to utils)

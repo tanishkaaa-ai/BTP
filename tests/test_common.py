@@ -23,8 +23,8 @@ def run_common_test(scheme, is_fixed=False):
         skA = scheme.keygen(pk, mk, b"anonA", ["Doctor"])
         skB = scheme.keygen(pk, mk, b"anonB", ["Cardiology"])
     else:
-        skA = scheme.keygen(pk, ["Doctor"])
-        skB = scheme.keygen(pk, ["Cardiology"])
+        skA = scheme.keygen(pk, mk, b"anonA", ["Doctor"])
+        skB = scheme.keygen(pk, mk, b"anonB", ["Cardiology"])
 
     # ----- Token Verification -----
     print("\n--- TOKEN VERIFICATION ---")

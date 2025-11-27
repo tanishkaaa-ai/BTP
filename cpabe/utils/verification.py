@@ -34,7 +34,7 @@ def verify_token(self, pk, sk):
     left = PSK_i * P
 
     # h2(ID_i, QID_i) ∈ ZR
-    h2_input = ID_i + self.group.serialize(QID_i)
+    h2_input = ID_i + group.serialize(QID_i)
     h2_val = self.group.hash(h2_input, ZR)
 
     # Right-hand side: QID_i + h2 * Tpub_AA
