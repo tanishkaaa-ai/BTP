@@ -2,7 +2,7 @@
 # KeyGen (flawed: per-attribute only, no user binding)
 # -----------------------------------------------------
 from charm.toolbox.pairinggroup import ZR
-def keygen(self, pk, user_attrs):
+def keygen(self, pk, mk ,user_attrs):
     """
     For each attribute a in user_attrs:
 
