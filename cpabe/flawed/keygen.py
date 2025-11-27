@@ -12,7 +12,7 @@ def keygen(self, pk, mk ,user_attrs):
     NO per-user randomness, NO identity binding.
     Anybody with QID[a] has that attribute's "power".
     """
-    if self.mk is None:
+    if mk is None:
         raise Exception("Run setup() first so mk is available in self.mk")
 
     g = pk["g"]
