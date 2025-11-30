@@ -1,0 +1,4 @@
+RecordID,PatientID,Department,SensorType,Timestamp,DoctorNotes,RequiredPolicy
+1001,P1001,Cardio,ECG,2025-02-11 10:12:55,Arrhythmia,Physician AND CardiologyDept AND CriticalCareAccess
+1002,P1001,ICU,HeartMon,2025-02-11 10:13:10,Tachy,Physician AND CriticalCareAccess
+1003,P1002,Emerg,Temp,2025-02-11 10:15:22,Fever,EmergencyDoctor AND CriticalCareAccess
